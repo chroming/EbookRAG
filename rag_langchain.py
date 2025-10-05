@@ -2,7 +2,9 @@ import hashlib
 import json
 import logging
 import os
+import shutil
 import sys
+import tempfile
 from pathlib import Path
 from types import MethodType
 
@@ -277,8 +279,21 @@ def load_epubs(epub_paths: list[Path]):
     docs = []
     for p in epub_paths:
         logger.debug("Loading EPUB file: %s", p)
-        loader = UnstructuredEPubLoader(str(p))
-        dlist = loader.load()
+        tmp_dir = None
+        loader_path = str(p)
+        if any(ch in loader_path for ch in "[]{}*?"):
+            tmp_dir = tempfile.TemporaryDirectory()
+            safe_path = Path(tmp_dir.name) / "ebook.epub"
+            shutil.copy2(p, safe_path)
+            loader_path = str(safe_path)
+            logger.debug("Copied EPUB with special characters to temporary path %s", loader_path)
+
+        try:
+            loader = UnstructuredEPubLoader(loader_path)
+            dlist = loader.load()
+        finally:
+            if tmp_dir is not None:
+                tmp_dir.cleanup()
         # Attach the file path as metadata for easier citation
         for d in dlist:
             d.metadata = d.metadata or {}
