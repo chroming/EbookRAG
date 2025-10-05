@@ -1,0 +1,53 @@
+[project]
+name = "ebook-rag"
+version = "0.1.0"
+description = "Local EPUB RAG with LlamaIndex or LangChain"
+readme = "README.md"
+requires-python = ">=3.10"
+
+# ---- Shared dependencies: EPUB extraction & vector models ----
+dependencies = [
+  "unstructured[epub]",
+  "sentence-transformers",
+  "huggingface-hub",
+  "python-dotenv",
+  # libmagic bindings (choose the variant for your platform)
+  "python-magic; platform_system != 'Windows'",
+  "python-magic-bin; platform_system == 'Windows'",
+  "pypandoc",
+]
+
+[project.optional-dependencies]
+# ---- Option A: LlamaIndex + FAISS ----
+llamaindex = [
+  "llama-index-core",
+  "llama-index-readers-file",
+  "llama-index-embeddings-huggingface",
+  "llama-index-llms-openai",
+  "llama-index-vector-stores-faiss",
+  "faiss-cpu",
+]
+
+# ---- Option B: LangChain + FAISS ----
+langchain = [
+  "langchain",
+  "langchain-community",
+  "langchain-openai",
+  "faiss-cpu",
+]
+
+# ---- Optional enhancements: sync these extras as needed ----
+bm25   = ["rank-bm25"]                                   # Hybrid retrieval
+rerank = ["transformers", "torch"]                        # Cross-encoder reranker (CPU is sufficient)
+qdrant = ["qdrant-client"]                                # Use Qdrant as the vector store
+pgvec  = ["psycopg[binary]", "pgvector"]                  # Switch to PostgreSQL/pgvector
+eval   = ["ragas", "trulens-eval", "pandas", "scikit-learn"]
+
+# Optional: configure a private index for uv (if needed)
+# [tool.uv.index]
+# url = "https://pypi.tuna.tsinghua.edu.cn/simple"
+
+# Optional: script entry points (once you implement main())
+# [project.scripts]
+# rag-llamaindex = "rag_llamaindex:main"
+# rag-langchain  = "rag_langchain:main"
