@@ -236,20 +236,16 @@ def get_epub_paths(epub_dir: str) -> list[Path]:
 
 
 def compute_epub_manifest(epub_paths: list[Path]) -> dict:
-    files = []
+    files: dict[str, dict[str, object]] = {}
     for path in epub_paths:
         stat = path.stat()
         with path.open("rb") as fh:
             digest = hashlib.sha256(fh.read()).hexdigest()
-        files.append(
-            {
-                "path": str(path.resolve()),
-                "size": stat.st_size,
-                "mtime": stat.st_mtime,
-                "sha256": digest,
-            }
-        )
-    files.sort(key=lambda item: item["path"])
+        files[str(path.resolve())] = {
+            "size": stat.st_size,
+            "mtime": stat.st_mtime,
+            "sha256": digest,
+        }
     return {"files": files}
 
 
@@ -258,7 +254,7 @@ def load_manifest(manifest_path: Path) -> dict | None:
         return None
     try:
         with manifest_path.open("r", encoding="utf-8") as fh:
-            return json.load(fh)
+            data = json.load(fh)
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning(
             "Failed to read manifest at %s (%s); vector store will be rebuilt.",
@@ -266,6 +262,30 @@ def load_manifest(manifest_path: Path) -> dict | None:
             exc,
         )
         return None
+
+    files = data.get("files") if isinstance(data, dict) else None
+    if isinstance(files, list):
+        converted: dict[str, dict[str, object]] = {}
+        for entry in files:
+            if not isinstance(entry, dict):
+                continue
+            path = entry.get("path")
+            if not path:
+                continue
+            converted[str(path)] = {
+                k: v
+                for k, v in entry.items()
+                if k in {"size", "mtime", "sha256", "doc_ids"}
+            }
+        data["files"] = converted
+        return data
+    if isinstance(files, dict):
+        return data
+    logger.warning(
+        "Manifest at %s is in an unexpected format; vector store will be rebuilt.",
+        manifest_path,
+    )
+    return None
 
 
 def save_manifest(manifest_path: Path, manifest: dict) -> None:
@@ -307,51 +327,142 @@ manifest_path = VECTOR_STORE_DIR / "manifest.json"
 current_manifest = compute_epub_manifest(epub_paths)
 stored_manifest = load_manifest(manifest_path)
 
-# ========== Vector store (FAISS) ==========
-vector_store_valid = (
-    VECTOR_STORE_DIR.exists()
-    and stored_manifest is not None
-    and stored_manifest == current_manifest
+manifest_data = stored_manifest if stored_manifest is not None else {"files": {}}
+if "files" not in manifest_data or not isinstance(manifest_data["files"], dict):
+    manifest_data = {"files": {}}
+
+stored_files: dict[str, dict[str, object]] = manifest_data["files"]
+current_files: dict[str, dict[str, object]] = current_manifest["files"]
+
+vectordb = None
+vector_store_loaded = False
+if VECTOR_STORE_DIR.exists():
+    try:
+        vectordb = FAISS.load_local(
+            str(VECTOR_STORE_DIR),
+            embeddings,
+            allow_dangerous_deserialization=True,
+        )
+        vector_store_loaded = True
+        logger.info(
+            "Loaded existing FAISS vector store from %s",
+            VECTOR_STORE_DIR.resolve(),
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to load existing vector store at %s (%s); it will be recreated as needed.",
+            VECTOR_STORE_DIR.resolve(),
+            exc,
+        )
+        vectordb = None
+        stored_files.clear()
+
+removed_paths = [path for path in list(stored_files.keys()) if path not in current_files]
+if removed_paths:
+    if vectordb is None and vector_store_loaded:
+        logger.warning("Vector store was expected but could not be loaded; skipped deletions for removed EPUBs.")
+    for path in removed_paths:
+        entry = stored_files.pop(path, None)
+        doc_ids = entry.get("doc_ids") if isinstance(entry, dict) else None
+        if vectordb is not None and doc_ids:
+            try:
+                vectordb.delete(doc_ids)
+                logger.info("Removed %d embedding vector(s) for deleted EPUB %s", len(doc_ids), path)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to remove embeddings for %s (%s)", path, exc)
+    if vectordb is not None:
+        vectordb.save_local(str(VECTOR_STORE_DIR))
+    save_manifest(manifest_path, manifest_data)
+
+splitter = RecursiveCharacterTextSplitter(
+    chunk_size=CHUNK_SIZE,
+    chunk_overlap=CHUNK_OVERLAP,
+    separators=CHUNK_SEPARATORS,
 )
 
-if vector_store_valid:
+pending_updates: list[tuple[Path, str, dict[str, object], dict[str, object] | None]] = []
+for path in epub_paths:
+    resolved = str(path.resolve())
+    file_info = current_files.get(resolved)
+    if file_info is None:
+        logger.warning("Missing fingerprint information for %s; skipping.", resolved)
+        continue
+    stored_entry = stored_files.get(resolved)
+    if stored_entry and stored_entry.get("sha256") == file_info.get("sha256"):
+        continue
+    pending_updates.append((path, resolved, file_info, stored_entry))
+
+if pending_updates:
+    ensure_pandoc()
+    names = ", ".join(str(item[0].name) for item in pending_updates)
     logger.info(
-        "EPUB fingerprints unchanged; loading FAISS vector store from %s",
-        VECTOR_STORE_DIR.resolve(),
-    )
-    vectordb = FAISS.load_local(
-        str(VECTOR_STORE_DIR),
-        embeddings,
-        allow_dangerous_deserialization=True,
+        "Detected %d EPUB file(s) pending embedding: %s",
+        len(pending_updates),
+        names,
     )
 else:
-    if stored_manifest is None:
-        logger.info(
-            "Manifest missing or unreadable for %s; rebuilding vector store",
-            VECTOR_STORE_DIR.resolve(),
-        )
-    else:
-        logger.info(
-            "Detected EPUB changes; rebuilding vector store at %s",
-            VECTOR_STORE_DIR.resolve(),
-        )
+    logger.info("All EPUB embeddings are up to date; no pending files detected.")
 
-    ensure_pandoc()
-    raw_docs = load_epubs(epub_paths)
-    logger.info("Splitting %d raw document(s) into chunks", len(raw_docs))
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=CHUNK_SEPARATORS,
-    )
+for path, resolved, file_info, stored_entry in pending_updates:
+    if stored_entry and vectordb is not None:
+        old_ids = stored_entry.get("doc_ids")
+        if old_ids:
+            try:
+                vectordb.delete(old_ids)
+                logger.info(
+                    "Removed %d outdated embedding vector(s) for %s before re-embedding",
+                    len(old_ids),
+                    resolved,
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Failed to remove outdated embeddings for %s (%s)", resolved, exc)
+
+    raw_docs = load_epubs([path])
+    logger.info("Splitting %d raw document(s) for %s", len(raw_docs), resolved)
     docs = splitter.split_documents(raw_docs)
-    logger.info("Generated %d document chunk(s)", len(docs))
+    logger.info("Generated %d document chunk(s) for %s", len(docs), resolved)
 
-    logger.info("Building FAISS vector store")
-    vectordb = FAISS.from_documents(docs, embeddings)
-    vectordb.save_local(str(VECTOR_STORE_DIR))
-    save_manifest(manifest_path, current_manifest)
-    logger.info("Persisted FAISS vector store and manifest to %s", VECTOR_STORE_DIR.resolve())
+    doc_ids = [f"{file_info['sha256']}:{i}" for i in range(len(docs))]
+
+    if docs:
+        if vectordb is None:
+            logger.info("Creating new FAISS vector store with %s", resolved)
+            vectordb = FAISS.from_documents(docs, embeddings, ids=doc_ids)
+        else:
+            vectordb.add_documents(docs, ids=doc_ids)
+            logger.info("Appended %d chunk(s) from %s to FAISS index", len(docs), resolved)
+        vectordb.save_local(str(VECTOR_STORE_DIR))
+    else:
+        logger.info("No chunks generated for %s; skipping vector store update", resolved)
+
+    stored_files[resolved] = {
+        **file_info,
+        "doc_ids": doc_ids,
+    }
+    save_manifest(manifest_path, manifest_data)
+
+if vectordb is None:
+    if VECTOR_STORE_DIR.exists():
+        try:
+            vectordb = FAISS.load_local(
+                str(VECTOR_STORE_DIR),
+                embeddings,
+                allow_dangerous_deserialization=True,
+            )
+            logger.info(
+                "Loaded FAISS vector store after incremental updates from %s",
+                VECTOR_STORE_DIR.resolve(),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Unable to load FAISS vector store from %s after updates (%s)",
+                VECTOR_STORE_DIR.resolve(),
+                exc,
+            )
+            sys.exit(1)
+    else:
+        logger.error("Vector store directory %s does not exist; add EPUB files first.", VECTOR_STORE_DIR.resolve())
+        sys.exit(1)
 
 retriever = vectordb.as_retriever(search_kwargs={"k": TOP_K})
 logger.info("Vector store ready; retriever configured with top_k=%d", TOP_K)
