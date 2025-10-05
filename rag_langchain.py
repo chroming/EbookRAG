@@ -17,7 +17,7 @@ from langchain_community.document_loaders import UnstructuredEPubLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import FAISS
-from langchain.embeddings import HuggingFaceEmbeddings
+from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 from langchain.chains.combine_documents import create_stuff_documents_chain
@@ -48,6 +48,11 @@ OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 VECTOR_STORE_DIR = Path(os.getenv("VECTOR_STORE_DIR", "vector_store_langchain"))
 EMBED_BATCH_SIZE = max(1, int(os.getenv("VECTOR_EMBED_BATCH_SIZE", "64")))
+EMBED_PROVIDER = (os.getenv("EMBED_PROVIDER") or "huggingface").strip().lower()
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL")
+DEFAULT_OLLAMA_EMBED_MODEL = "nomic-embed-text"
+OLLAMA_EMBED_OPTIONS = os.getenv("OLLAMA_EMBED_OPTIONS")
 
 # LLM: OpenAI compatible (you can swap in a local service)
 _llm_kwargs = {
@@ -61,10 +66,72 @@ if OPENAI_API_KEY:
 llm = ChatOpenAI(**_llm_kwargs)
 
 # Embedding
-embeddings = HuggingFaceEmbeddings(
-    model_name=EMBED_MODEL_NAME,
-    encode_kwargs={"normalize_embeddings": True},
-)
+
+
+def create_embeddings():
+    if EMBED_PROVIDER == "huggingface":
+        logger.info("Using HuggingFace embeddings with model=%s", EMBED_MODEL_NAME)
+        return HuggingFaceEmbeddings(
+            model_name=EMBED_MODEL_NAME,
+            encode_kwargs={"normalize_embeddings": True},
+        )
+
+    if EMBED_PROVIDER == "ollama":
+        try:
+            from langchain_community.embeddings import OllamaEmbeddings
+        except ImportError as exc:
+            raise ImportError(
+                "Ollama embeddings requested but langchain_community Ollama support is unavailable."
+            ) from exc
+
+        extra_options: dict[str, object] = {}
+        if OLLAMA_EMBED_OPTIONS:
+            try:
+                extra_options = json.loads(OLLAMA_EMBED_OPTIONS)
+                if not isinstance(extra_options, dict):
+                    raise ValueError
+            except (json.JSONDecodeError, ValueError) as exc:
+                logger.warning(
+                    "Ignoring OLLAMA_EMBED_OPTIONS because it is not valid JSON object: %s",
+                    exc,
+                )
+                extra_options = {}
+
+        if not getattr(OllamaEmbeddings, "_ebookrag_sanitized", False):
+            original_getter = OllamaEmbeddings._default_params.fget
+            # Remove empty key to prevent warning in ollama api
+            def sanitized_default_params(self, _orig=original_getter):
+                params = dict(_orig(self))
+                options = dict(params.get("options") or {})
+                options = {k: v for k, v in options.items() if v is not None}
+                custom = getattr(self, "_ebookrag_embed_options", None)
+                if custom:
+                    options.update({k: v for k, v in custom.items() if v is not None})
+                if options:
+                    params["options"] = options
+                else:
+                    params.pop("options", None)
+                return params
+
+            OllamaEmbeddings._default_params = property(sanitized_default_params)
+            OllamaEmbeddings._ebookrag_sanitized = True
+
+        model_name = (OLLAMA_EMBED_MODEL or DEFAULT_OLLAMA_EMBED_MODEL).strip()
+        kwargs = {}
+        if OLLAMA_BASE_URL:
+            kwargs["base_url"] = OLLAMA_BASE_URL
+        logger.info("Using Ollama embeddings with model=%s", model_name)
+        embedding = OllamaEmbeddings(model=model_name, **kwargs)
+        embedding._ebookrag_embed_options = extra_options
+        return embedding
+
+    raise ValueError(
+        "Unsupported EMBED_PROVIDER '%s'. Expected 'huggingface' or 'ollama'."
+        % EMBED_PROVIDER
+    )
+
+
+embeddings = create_embeddings()
 
 
 def _enable_embedding_progress_logging(embedding_model):
@@ -224,7 +291,7 @@ logger.info("Vector store ready; retriever configured with top_k=%d", TOP_K)
 
 # ========== Prompt template (with citation placeholders) ==========
 prompt = ChatPromptTemplate.from_template(
-    """You are a medical knowledge assistant. Answer the question using the provided excerpts.
+    """You are a knowledge assistant. Answer the question using the provided excerpts.
 Context:
 {context}
 
