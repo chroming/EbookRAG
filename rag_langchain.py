@@ -221,8 +221,11 @@ _enable_embedding_progress_logging(embeddings)
 def get_epub_paths(epub_dir: str) -> list[Path]:
     target_dir = Path(epub_dir)
     if not target_dir.exists():
-        logger.error("EPUB directory not found at %s - exiting.", target_dir.resolve())
-        sys.exit(1)
+        logger.info(
+            "EPUB directory not found at %s; creating directory.",
+            target_dir.resolve(),
+        )
+        target_dir.mkdir(parents=True, exist_ok=True)
     epub_paths = sorted(target_dir.glob("**/*.epub"))
     if not epub_paths:
         logger.error("No EPUB files found under %s - exiting.", target_dir.resolve())
