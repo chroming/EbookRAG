@@ -53,6 +53,26 @@ OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL")
 DEFAULT_OLLAMA_EMBED_MODEL = "nomic-embed-text"
 OLLAMA_EMBED_OPTIONS = os.getenv("OLLAMA_EMBED_OPTIONS")
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
+_DEFAULT_CHUNK_SEPARATORS = ["\n\n", "\n", ".", "!", "?", ",", " ", ""]
+_chunk_separators_raw = os.getenv("CHUNK_SEPARATORS")
+if _chunk_separators_raw:
+    try:
+        CHUNK_SEPARATORS = json.loads(_chunk_separators_raw)
+        if not isinstance(CHUNK_SEPARATORS, list):
+            raise ValueError
+    except (json.JSONDecodeError, ValueError) as exc:
+        logger.warning(
+            "Invalid CHUNK_SEPARATORS value; expected JSON list. Using default separators. (%s)",
+            exc,
+        )
+        CHUNK_SEPARATORS = _DEFAULT_CHUNK_SEPARATORS
+else:
+    CHUNK_SEPARATORS = _DEFAULT_CHUNK_SEPARATORS
+
+QA_PROMPT_TEMPLATE = os.getenv("QA_PROMPT_TEMPLATE")
+QA_PROMPT_TEMPLATE_PATH = os.getenv("QA_PROMPT_TEMPLATE_PATH")
 
 # LLM: OpenAI compatible (you can swap in a local service)
 _llm_kwargs = {
@@ -132,6 +152,35 @@ def create_embeddings():
 
 
 embeddings = create_embeddings()
+
+
+def load_prompt_template() -> str:
+    if QA_PROMPT_TEMPLATE_PATH:
+        template_path = Path(QA_PROMPT_TEMPLATE_PATH)
+        try:
+            content = template_path.read_text(encoding="utf-8")
+            logger.info("Using prompt template loaded from %s", template_path.resolve())
+            return content
+        except OSError as exc:
+            logger.warning(
+                "Failed to read QA prompt template from %s (%s); falling back to default template.",
+                template_path,
+                exc,
+            )
+
+    if QA_PROMPT_TEMPLATE:
+        logger.info("Using prompt template provided via QA_PROMPT_TEMPLATE environment variable")
+        return QA_PROMPT_TEMPLATE
+
+    return (
+        "You are a knowledge assistant. Answer the question using the provided excerpts.\n"
+        "Context:\n{context}\n\n"
+        "Guidelines:\n"
+        "1) Base the answer strictly on the context; if unsure, respond with \"No clear evidence found in the provided context.\"\n"
+        "2) Present key steps as a list.\n"
+        "3) Conclude with \"References\" that includes file names and approximate locations when available.\n\n"
+        "Question: {input}"
+    )
 
 
 def _enable_embedding_progress_logging(embedding_model):
@@ -273,9 +322,9 @@ else:
     raw_docs = load_epubs(epub_paths)
     logger.info("Splitting %d raw document(s) into chunks", len(raw_docs))
     splitter = RecursiveCharacterTextSplitter(
-        chunk_size=800,
-        chunk_overlap=120,
-        separators=["\n\n", "\n", ".", "!", "?", ",", " ", ""],
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        separators=CHUNK_SEPARATORS,
     )
     docs = splitter.split_documents(raw_docs)
     logger.info("Generated %d document chunk(s)", len(docs))
@@ -290,18 +339,8 @@ retriever = vectordb.as_retriever(search_kwargs={"k": TOP_K})
 logger.info("Vector store ready; retriever configured with top_k=%d", TOP_K)
 
 # ========== Prompt template (with citation placeholders) ==========
-prompt = ChatPromptTemplate.from_template(
-    """You are a knowledge assistant. Answer the question using the provided excerpts.
-Context:
-{context}
-
-Guidelines:
-1) Base the answer strictly on the context; if unsure, respond with "No clear evidence found in the provided context."
-2) Present key steps as a list.
-3) Conclude with "References" that includes file names and approximate locations when available.
-
-Question: {input}"""
-)
+prompt_template_text = load_prompt_template()
+prompt = ChatPromptTemplate.from_template(prompt_template_text)
 
 # "stuff" chain: inject retrieved documents directly into the context
 combine_chain = create_stuff_documents_chain(llm, prompt)
