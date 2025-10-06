@@ -180,9 +180,81 @@ def load_prompt_template() -> str:
         "Guidelines:\n"
         "1) Base the answer strictly on the context; if unsure, respond with \"No clear evidence found in the provided context.\"\n"
         "2) Present key steps as a list.\n"
-        "3) Conclude with \"References\" that includes file names and approximate locations when available.\n\n"
+        "3) Context snippets are prefixed with \"Source Info: ...\" that list file names and sections—use them when writing the answer.\n"
+        "4) Conclude with **References** and bullet(s) formatted exactly as \"- <section or label> (<source filename>; <location if available>)\".\n\n"
         "Question: {input}"
     )
+
+
+_REFERENCE_CANDIDATE_KEYS = (
+    "display_label",
+    "title",
+    "heading",
+    "section",
+    "category",
+    "source_title",
+    "source_section",
+    "subtitle",
+)
+
+
+def _collapse_whitespace(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _trim_snippet(text: str, max_length: int = 80) -> str:
+    if len(text) <= max_length:
+        return text
+    return text[: max_length - 1].rstrip() + "…"
+
+
+def _metadata_label(meta: dict) -> str | None:
+    for key in _REFERENCE_CANDIDATE_KEYS:
+        value = meta.get(key)
+        if isinstance(value, str):
+            cleaned = _collapse_whitespace(value).strip()
+            if cleaned:
+                return cleaned
+    return None
+
+
+def _annotate_documents(documents: list[Document]) -> None:
+    for doc in documents:
+        meta = doc.metadata = doc.metadata or {}
+        original_content = doc.page_content or ""
+        meta.setdefault("_original_excerpt", original_content)
+
+        label = _metadata_label(meta)
+        if not label:
+            for line in original_content.splitlines():
+                cleaned = _collapse_whitespace(line).strip()
+                if cleaned:
+                    label = _trim_snippet(cleaned)
+                    break
+        if not label:
+            label = "Excerpt"
+        meta["display_label"] = label
+
+        location_parts = []
+        if "page_number" in meta:
+            location_parts.append(f"page {meta['page_number']}")
+        if "element_id" in meta:
+            location_parts.append(f"id {meta['element_id']}")
+        if "start_index" in meta and "end_index" in meta:
+            location_parts.append(f"chars {meta['start_index']}-{meta['end_index']}")
+        location = ", ".join(location_parts)
+        if location:
+            meta["reference_location"] = location
+
+        source_path = meta.get("source")
+        filename = Path(source_path).name if source_path else "unknown"
+        header_parts = [f"File: {filename}"]
+        if label:
+            header_parts.append(f"Section: {label}")
+        if location:
+            header_parts.append(f"Location: {location}")
+        header = "Source Info: " + "; ".join(header_parts)
+        doc.page_content = f"{header}\n{original_content}"
 
 
 def _enable_embedding_progress_logging(embedding_model):
@@ -420,6 +492,7 @@ for path, resolved, file_info, stored_entry in pending_updates:
     raw_docs = load_epubs([path])
     logger.info("Splitting %d raw document(s) for %s", len(raw_docs), resolved)
     docs = splitter.split_documents(raw_docs)
+    _annotate_documents(docs)
     logger.info("Generated %d document chunk(s) for %s", len(docs), resolved)
 
     doc_ids = [f"{file_info['sha256']}:{i}" for i in range(len(docs))]
@@ -477,8 +550,30 @@ combine_chain = create_stuff_documents_chain(llm, prompt)
 # QA chain: retriever -> LLM
 qa_chain = create_retrieval_chain(retriever, combine_chain)
 
+
+def _reference_label(document: Document) -> str:
+    meta = document.metadata or {}
+    label = meta.get("display_label")
+    if isinstance(label, str):
+        cleaned_label = _collapse_whitespace(label).strip()
+        if cleaned_label:
+            return cleaned_label
+
+    metadata_label = _metadata_label(meta)
+    if metadata_label:
+        return metadata_label
+
+    content = meta.get("_original_excerpt") or document.page_content or ""
+    for line in content.splitlines():
+        cleaned = _collapse_whitespace(line).strip()
+        if cleaned:
+            return _trim_snippet(cleaned)
+
+    return "Excerpt"
+
+
 def pretty_sources(source_docs):
-    lines = []
+    entries = []
     seen = set()
     for i, d in enumerate(source_docs, 1):
         src = d.metadata.get("source")
@@ -494,9 +589,13 @@ def pretty_sources(source_docs):
         if key in seen:
             continue
         seen.add(key)
-        pos_str = f" ({', '.join(pos)})" if pos else ""
-        lines.append(f"- {Path(src).name}{pos_str}")
-    return "\n".join(lines)
+        filename = Path(src).name if src else "unknown"
+        location_meta = d.metadata.get("reference_location")
+        location = location_meta or ", ".join(pos)
+        pos_suffix = f"; {location}" if location else ""
+        label = _reference_label(d)
+        entries.append(f"- {label} ({filename}{pos_suffix})")
+    return "\n".join(entries)
 
 def ask(q: str):
     logger.info("Invoking QA chain for query: %s", q)
