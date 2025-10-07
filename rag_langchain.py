@@ -57,7 +57,7 @@ DEFAULT_OLLAMA_EMBED_MODEL = "nomic-embed-text"
 OLLAMA_EMBED_OPTIONS = os.getenv("OLLAMA_EMBED_OPTIONS")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
-_DEFAULT_CHUNK_SEPARATORS = ["\n\n", "\n", ".", "!", "?", ",", " ", ""]
+_DEFAULT_CHUNK_SEPARATORS = ["\n\n", "\n", "。", "！", "？", "；", "......", "...", "!", "?", "，", ".", ",", "：", "、", " ", ""]
 _chunk_separators_raw = os.getenv("CHUNK_SEPARATORS")
 if _chunk_separators_raw:
     try:
