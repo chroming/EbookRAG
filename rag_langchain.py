@@ -575,26 +575,46 @@ def _reference_label(document: Document) -> str:
 def pretty_sources(source_docs):
     entries = []
     seen = set()
-    for i, d in enumerate(source_docs, 1):
-        src = d.metadata.get("source")
+    for _, document in enumerate(source_docs, 1):
+        metadata = document.metadata or {}
+        src = metadata.get("source")
         # Estimate approximate location for context citations
         pos = []
-        if "page_number" in d.metadata:
-            pos.append(f"page={d.metadata['page_number']}")
-        if "element_id" in d.metadata:
-            pos.append(f"id={d.metadata['element_id']}")
-        if "start_index" in d.metadata and "end_index" in d.metadata:
-            pos.append(f"char={d.metadata['start_index']}-{d.metadata['end_index']}")
+        if "page_number" in metadata:
+            pos.append(f"page={metadata['page_number']}")
+        if "element_id" in metadata:
+            pos.append(f"id={metadata['element_id']}")
+        if "start_index" in metadata and "end_index" in metadata:
+            pos.append(f"char={metadata['start_index']}-{metadata['end_index']}")
+
         key = (src, tuple(pos))
         if key in seen:
             continue
         seen.add(key)
+
         filename = Path(src).name if src else "unknown"
-        location_meta = d.metadata.get("reference_location")
+        location_meta = metadata.get("reference_location")
         location = location_meta or ", ".join(pos)
-        pos_suffix = f"; {location}" if location else ""
-        label = _reference_label(d)
-        entries.append(f"- {label} ({filename}{pos_suffix})")
+
+        score_label = None
+        score_value = None
+        for candidate in ("score", "similarity", "relevance_score", "distance"):
+            value = metadata.get(candidate)
+            if isinstance(value, (int, float)):
+                score_label = "match" if candidate != "distance" else "distance"
+                score_value = float(value)
+                break
+
+        detail_parts = []
+        if location:
+            detail_parts.append(location)
+        if score_value is not None:
+            detail_parts.append(f"{score_label}={score_value:.4f}")
+        detail_suffix = f"; {'; '.join(detail_parts)}" if detail_parts else ""
+
+        label = _reference_label(document)
+        entries.append(f"- {label} ({filename}{detail_suffix})")
+
     return "\n".join(entries)
 
 def ask(q: str):
