@@ -78,6 +78,15 @@ else:
 
 QA_PROMPT_TEMPLATE = os.getenv("QA_PROMPT_TEMPLATE")
 QA_PROMPT_TEMPLATE_PATH = os.getenv("QA_PROMPT_TEMPLATE_PATH")
+LANGGRAPH_GRADER_SYSTEM_PROMPT = (
+    os.getenv("LANGGRAPH_GRADER_SYSTEM_PROMPT")
+    or "You are a strict grader that evaluates whether a document excerpt is useful for answering a user question. "
+    "Reply with a single word: 'yes' if the excerpt should be kept, otherwise 'no'."
+)
+LANGGRAPH_GRADER_HUMAN_PROMPT = (
+    os.getenv("LANGGRAPH_GRADER_HUMAN_PROMPT")
+    or "Question:\n{question}\n\nDocument excerpt:\n{document}\n\nShould this excerpt be kept?"
+)
 
 # LLM: OpenAI compatible (you can swap in a local service)
 _llm_kwargs = {
@@ -563,12 +572,11 @@ _LANGGRAPH_GRADER_PROMPT = ChatPromptTemplate.from_messages(
     [
         (
             "system",
-            "You are a strict grader that evaluates whether a document excerpt is useful for answering a user question."
-            "Reply with a single word: 'yes' if the excerpt should be kept, otherwise 'no'.",
+            LANGGRAPH_GRADER_SYSTEM_PROMPT,
         ),
         (
             "human",
-            "Question:\n{question}\n\nDocument excerpt:\n{document}\n\nShould this excerpt be kept?",
+            LANGGRAPH_GRADER_HUMAN_PROMPT,
         ),
     ]
 )
@@ -600,6 +608,7 @@ def _grade_documents_with_llm(question: str, docs: list[Document]) -> list[Docum
         logger.info("Invoke doc by using message: %s", messages)
         try:
             result = llm.invoke(messages)
+            logger.debug("Grade doc result %s", result)
             verdict = _normalize_message_content(result.content).strip().lower()
         except Exception as exc:  # noqa: BLE001
             logger.warning("LangGraph grader failed for document %d/%d (%s); keeping excerpt.", idx, total, exc)
