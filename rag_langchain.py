@@ -7,6 +7,8 @@ import sys
 import tempfile
 from pathlib import Path
 from types import MethodType
+from collections import deque
+from typing import TypedDict
 
 try:
     import pypandoc
@@ -14,6 +16,8 @@ except ImportError:
     pypandoc = None
 
 from dotenv import load_dotenv
+
+from langgraph.graph import END, START, StateGraph
 
 from langchain_community.document_loaders import UnstructuredEPubLoader
 from langchain.text_splitter import RecursiveCharacterTextSplitter
@@ -23,10 +27,9 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain.prompts import ChatPromptTemplate
 from langchain_core.documents import Document
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.chains import create_retrieval_chain
 
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
 logger = logging.getLogger(__name__)
 
 def ensure_pandoc():
@@ -547,8 +550,131 @@ prompt = ChatPromptTemplate.from_template(prompt_template_text)
 # "stuff" chain: inject retrieved documents directly into the context
 combine_chain = create_stuff_documents_chain(llm, prompt)
 
-# QA chain: retriever -> LLM
-qa_chain = create_retrieval_chain(retriever, combine_chain)
+class _LangGraphState(TypedDict, total=False):
+    question: str
+    history: list[str]
+    retrieved: list[Document]
+    filtered: list[Document]
+    retrieval_query: str
+    answer: str
+
+
+_LANGGRAPH_GRADER_PROMPT = ChatPromptTemplate.from_messages(
+    [
+        (
+            "system",
+            "You are a strict grader that evaluates whether a document excerpt is useful for answering a user question."
+            "Reply with a single word: 'yes' if the excerpt should be kept, otherwise 'no'.",
+        ),
+        (
+            "human",
+            "Question:\n{question}\n\nDocument excerpt:\n{document}\n\nShould this excerpt be kept?",
+        ),
+    ]
+)
+
+
+_CONVERSATION_MEMORY: deque[str] = deque(maxlen=6)
+
+
+def _normalize_message_content(content) -> str:
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        return " ".join(_normalize_message_content(item) for item in content)
+    if isinstance(content, dict):
+        return " ".join(str(value) for value in content.values())
+    return str(content)
+
+
+def _grade_documents_with_llm(question: str, docs: list[Document]) -> list[Document]:
+    if not docs:
+        return []
+    filtered_docs: list[Document] = []
+    total = len(docs)
+    for idx, doc in enumerate(docs, 1):
+        excerpt = doc.page_content or ""
+        if len(excerpt) > 2000:
+            excerpt = excerpt[:2000]
+        messages = _LANGGRAPH_GRADER_PROMPT.format_messages(question=question, document=excerpt)
+        logger.info("Invoke doc by using message: %s", messages)
+        try:
+            result = llm.invoke(messages)
+            verdict = _normalize_message_content(result.content).strip().lower()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("LangGraph grader failed for document %d/%d (%s); keeping excerpt.", idx, total, exc)
+            filtered_docs.append(doc)
+            continue
+        if verdict.startswith("y"):
+            filtered_docs.append(doc)
+    if not filtered_docs:
+        filtered_docs = docs[:1]
+    logger.info(
+        "LangGraph grader retained %d/%d retrieved document chunk(s)",
+        len(filtered_docs),
+        total,
+    )
+    return filtered_docs
+
+
+def _build_langgraph_rag():
+    builder = StateGraph(_LangGraphState)
+
+    def retrieve_node(state: _LangGraphState):
+        logger.debug("retrieve_node State %s", state)
+        history_entries = state.get("history") or []
+        if history_entries:
+            history_excerpt = "\n\n".join(history_entries[-3:])
+            query = f"{state['question']}\n\nPrevious context:\n{history_excerpt}"
+        else:
+            query = state["question"]
+        docs = retriever.invoke(query)
+        logger.debug("Retrieve docs: %s with query: %s", docs, query)
+        return {"retrieved": docs, "retrieval_query": query}
+
+    def grade_node(state: _LangGraphState):
+        logger.debug("grade_node State %s", state)
+        docs = state.get("retrieved") or []
+        filtered = _grade_documents_with_llm(state["question"], docs)
+        logger.debug("filtered docs: %s", filtered)
+        return {"filtered": filtered}
+
+    def answer_node(state: _LangGraphState):
+        logger.debug("answer_node State %s", state)
+        docs = state.get("filtered") or state.get("retrieved") or []
+        history_entries = state.get("history") or []
+        if history_entries:
+            history_text = "\n\n".join(history_entries[-5:])
+            history_doc = Document(
+                page_content=f"Source Info: Prior conversation; Section: Conversation history\n{history_text}",
+                metadata={"source": "conversation", "display_label": "Conversation history"},
+            )
+            docs = [history_doc, *docs]
+        logger.debug("Combine invoke with context: %s", docs)
+        response = combine_chain.invoke({"input": state["question"], "context": docs})
+        answer_text = ""
+        if isinstance(response, dict):
+            answer_text = response.get("output_text") or response.get("answer") or ""
+        elif isinstance(response, str):
+            answer_text = response
+        else:
+            answer_text = str(response)
+        return {"answer": answer_text, "filtered": docs}
+
+    builder.add_node("retrieve", retrieve_node)
+    builder.add_node("grade_documents", grade_node)
+    builder.add_node("answer", answer_node)
+
+    builder.add_edge(START, "retrieve")
+    builder.add_edge("retrieve", "grade_documents")
+    builder.add_edge("grade_documents", "answer")
+    builder.add_edge("answer", END)
+
+    return builder.compile()
+
+
+_LANGGRAPH_RAG = _build_langgraph_rag()
+logger.info("LangGraph workflow with document grading and conversation memory enabled.")
 
 
 def _reference_label(document: Document) -> str:
@@ -577,6 +703,8 @@ def pretty_sources(source_docs):
     seen = set()
     for _, document in enumerate(source_docs, 1):
         metadata = document.metadata or {}
+        if metadata.get("source") == "conversation":
+            continue
         src = metadata.get("source")
         # Estimate approximate location for context citations
         pos = []
@@ -618,18 +746,31 @@ def pretty_sources(source_docs):
     return "\n".join(entries)
 
 def ask(q: str):
-    logger.info("Invoking QA chain for query: %s", q)
-    res = qa_chain.invoke({"input": q})
-    context_docs = res.get("context", [])
-    docs_for_refs = [d for d in context_docs if isinstance(d, Document)] if isinstance(context_docs, list) else []
-    answer = res.get("answer", "")
-    logger.info("QA chain completed; received %d source document(s)", len(docs_for_refs))
+    docs_for_refs: list[Document] = []
+    answer = ""
+    history_snapshot = list(_CONVERSATION_MEMORY)
+    logger.info("Invoking LangGraph QA workflow for query: %s with history: %s", q, history_snapshot)
+    res = _LANGGRAPH_RAG.invoke({"question": q, "history": history_snapshot})
+    logger.debug("Got response %s", res)
+    filtered_docs = res.get("filtered") or res.get("retrieved") or []
+    docs_for_refs = [
+        d for d in filtered_docs if isinstance(d, Document) and d.metadata.get("source") != "conversation"
+    ]
+    answer = res.get("answer", "") or ""
+    augmented_query = res.get("retrieval_query")
+    if isinstance(augmented_query, str) and augmented_query.strip() and augmented_query.strip() != q.strip():
+        logger.info("LangGraph augmented retrieval query: %s", augmented_query)
+    logger.info(
+        "LangGraph workflow completed; %d document chunk(s) retained after grading",
+        len(docs_for_refs),
+    )
     logger.info("Question: %s", q)
     logger.info("Answer: %s", answer)
     if docs_for_refs:
         logger.info("References:\n%s", pretty_sources(docs_for_refs))
     else:
         logger.info("References unavailable from retrieval context")
+    _CONVERSATION_MEMORY.append(f"Q: {q}\nA: {answer}")
 
 
 def interactive_loop():
