@@ -15,7 +15,7 @@ dependencies = [
   "python-magic; platform_system != 'Windows'",
   "python-magic-bin; platform_system == 'Windows'",
   "pypandoc",
-  "langgraph>=0.6.10",
+  
 ]
 
 [project.optional-dependencies]
@@ -35,6 +35,7 @@ langchain = [
   "langchain-community",
   "langchain-openai",
   "faiss-cpu",
+  "langgraph",
 ]
 
 # ---- Optional enhancements: sync these extras as needed ----

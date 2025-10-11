@@ -791,7 +791,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "huggingface-hub" },
-    { name = "langgraph" },
     { name = "pypandoc" },
     { name = "python-dotenv" },
     { name = "python-magic", marker = "sys_platform != 'win32'" },
@@ -815,6 +814,7 @@ langchain = [
     { name = "langchain" },
     { name = "langchain-community" },
     { name = "langchain-openai" },
+    { name = "langgraph" },
 ]
 llamaindex = [
     { name = "faiss-cpu" },
@@ -844,7 +844,7 @@ requires-dist = [
     { name = "langchain", marker = "extra == 'langchain'" },
     { name = "langchain-community", marker = "extra == 'langchain'" },
     { name = "langchain-openai", marker = "extra == 'langchain'" },
-    { name = "langgraph", specifier = ">=0.6.10" },
+    { name = "langgraph", marker = "extra == 'langchain'" },
     { name = "llama-index-core", marker = "extra == 'llamaindex'" },
     { name = "llama-index-embeddings-huggingface", marker = "extra == 'llamaindex'" },
     { name = "llama-index-llms-openai", marker = "extra == 'llamaindex'" },
