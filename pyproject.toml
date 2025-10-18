@@ -15,7 +15,7 @@ dependencies = [
   "python-magic; platform_system != 'Windows'",
   "python-magic-bin; platform_system == 'Windows'",
   "pypandoc",
-  
+
 ]
 
 [project.optional-dependencies]
@@ -31,7 +31,7 @@ llamaindex = [
 
 # ---- Option B: LangChain + FAISS ----
 langchain = [
-  "langchain",
+  "langgraph[langchain]==1.0.0",
   "langchain-community",
   "langchain-openai",
   "faiss-cpu",
