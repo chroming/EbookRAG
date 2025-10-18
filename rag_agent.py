@@ -1,41 +1,20 @@
 import logging
-from collections import deque
 from typing import Sequence
 
 from langchain_core.documents import Document
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage
+from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.tools import tool
-from typing_extensions import Annotated
 
-from langchain.agents import create_agent, AgentState
-from langgraph.prebuilt import InjectedState
+from langchain.agents import create_agent
 
 from rag_langchain import (  # type: ignore[attr-defined]
     _grade_documents_with_llm,
-    _normalize_message_content,
     llm,
     pretty_sources,
     retriever,
 )
 
 logger = logging.getLogger(__name__)
-
-_HISTORY_WINDOW = 6
-
-
-def _extract_history(messages: Sequence[BaseMessage]) -> str:
-    """Return a condensed view of previous conversation turns."""
-    history: deque[str] = deque(maxlen=_HISTORY_WINDOW)
-    for message in messages:
-        if isinstance(message, HumanMessage):
-            history.append(
-                f"Q: {_normalize_message_content(message.content).strip()}"
-            )
-        elif isinstance(message, AIMessage) and not message.tool_calls:
-            history.append(
-                f"A: {_normalize_message_content(message.content).strip()}"
-            )
-    return "\n".join(history)
 
 
 def _format_context(docs: Sequence[Document]) -> str:
@@ -51,20 +30,10 @@ def _format_context(docs: Sequence[Document]) -> str:
 
 
 @tool
-def search_epubs(
-    question: str,
-    state: Annotated[AgentState, InjectedState],
-) -> str:
-    """Retrieve the most relevant EPUB excerpts for the given question."""
-    messages = list(state.get("messages", []))
-    history_excerpt = _extract_history(messages[:-1]) if messages else ""
-
-    retrieval_query = question
-    if history_excerpt:
-        retrieval_query = f"{question}\n\nPrevious context:\n{history_excerpt}"
-
-    logger.debug("Retrieving docs with query: %s", retrieval_query)
-    retrieved_docs = retriever.invoke(retrieval_query) or []
+def search_epubs(question: str) -> str:
+    """Retrieve relevant EPUB excerpts for the given question."""
+    logger.debug("Retrieving docs for question: %s", question)
+    retrieved_docs = retriever.invoke(question) or []
     filtered_docs = _grade_documents_with_llm(question, retrieved_docs)
 
     logger.info(
