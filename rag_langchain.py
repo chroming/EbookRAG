@@ -20,13 +20,13 @@ from dotenv import load_dotenv
 from langgraph.graph import END, START, StateGraph
 
 from langchain_community.document_loaders import UnstructuredEPubLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_openai import ChatOpenAI
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain.prompts import ChatPromptTemplate
+from langchain_core.prompts.chat import ChatPromptTemplate
 from langchain_core.documents import Document
-from langchain.chains.combine_documents import create_stuff_documents_chain
+from langchain_classic.chains.combine_documents import create_stuff_documents_chain
 
 
 logging.basicConfig(level=logging.DEBUG, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
