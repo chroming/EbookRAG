@@ -791,8 +791,8 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "huggingface-hub" },
-    { name = "langchain" },
-    { name = "langgraph" },
+    { name = "langchain-classic" },
+    { name = "langchain-text-splitters" },
     { name = "pypandoc" },
     { name = "python-dotenv" },
     { name = "python-magic", marker = "sys_platform != 'win32'" },
@@ -813,6 +813,7 @@ eval = [
 ]
 langchain = [
     { name = "faiss-cpu" },
+    { name = "langchain" },
     { name = "langchain-community" },
     { name = "langchain-openai" },
     { name = "langgraph" },
@@ -842,12 +843,13 @@ requires-dist = [
     { name = "faiss-cpu", marker = "extra == 'langchain'" },
     { name = "faiss-cpu", marker = "extra == 'llamaindex'" },
     { name = "huggingface-hub" },
-    { name = "langchain", extras = ["langchain"], specifier = "==1.0.0" },
+    { name = "langchain", marker = "extra == 'langchain'", specifier = "==1.0.0" },
+    { name = "langchain-classic", specifier = ">=1.0.0" },
     { name = "langchain-community", marker = "extra == 'langchain'" },
     { name = "langchain-openai", marker = "extra == 'langchain'" },
+    { name = "langchain-text-splitters", specifier = ">=1.0.0" },
     { name = "langgraph", marker = "extra == 'langchain'" },
     { name = "langgraph", marker = "extra == 'langchain'", specifier = "==1.0.0" },
-    { name = "langgraph", extras = ["langchain"], specifier = "==1.0.0" },
     { name = "llama-index-core", marker = "extra == 'llamaindex'" },
     { name = "llama-index-embeddings-huggingface", marker = "extra == 'llamaindex'" },
     { name = "llama-index-llms-openai", marker = "extra == 'llamaindex'" },
@@ -1952,6 +1954,25 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-classic"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "async-timeout", marker = "python_full_version < '3.11'" },
+    { name = "langchain-core" },
+    { name = "langchain-text-splitters" },
+    { name = "langsmith" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+    { name = "requests" },
+    { name = "sqlalchemy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d9/b1/a66babeccb2c05ed89690a534296688c0349bee7a71641e91ecc2afd72fd/langchain_classic-1.0.0.tar.gz", hash = "sha256:a63655609254ebc36d660eb5ad7c06c778b2e6733c615ffdac3eac4fbe2b12c5", size = 10514930, upload-time = "2025-10-17T16:02:47.887Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/74/74/246f809a3741c21982f985ca0113ec92d3c84896308561cc4414823f6951/langchain_classic-1.0.0-py3-none-any.whl", hash = "sha256:97f71f150c10123f5511c08873f030e35ede52311d729a7688c721b4e1e01f33", size = 1040701, upload-time = "2025-10-17T16:02:46.35Z" },
+]
+
+[[package]]
 name = "langchain-community"
 version = "0.3.30"
 source = { registry = "https://pypi.org/simple" }
@@ -2005,6 +2026,18 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/75/23/91461c6c2b1c8ceeadd6fefe453a03b1537afeff4ace3c118d7e7659f5a7/langchain_openai-0.3.34.tar.gz", hash = "sha256:57916d462be5b8fd19e5cb2f00d4e5cf0465266a292d583de2fc693a55ba190e", size = 785924, upload-time = "2025-10-01T15:18:40.635Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/66/94/132aff5a1ed4ebfe7b4d3e4dbf30b9f70ce2bd2ac3470d0c0e742845afb1/langchain_openai-0.3.34-py3-none-any.whl", hash = "sha256:08d61d68a6d869c70d542171e149b9065668dedfc4fafcd4de8aeb5b933030a9", size = 75605, upload-time = "2025-10-01T15:18:39.415Z" },
+]
+
+[[package]]
+name = "langchain-text-splitters"
+version = "1.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "langchain-core" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/fa/2e/c833dcc379c1c086453708ef5eef7d4d1f808559ca4458bd6569d5d83ad7/langchain_text_splitters-1.0.0.tar.gz", hash = "sha256:d8580a20ad7ed10b432feb273e5758b2cc0902d094919629cec0e1ad691a6744", size = 264257, upload-time = "2025-10-17T14:33:41.743Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/1e/97/d362353ab04f865af6f81d4d46e7aa428734aa032de0017934b771fc34b7/langchain_text_splitters-1.0.0-py3-none-any.whl", hash = "sha256:f00c8219d3468f2c5bd951b708b6a7dd9bc3c62d0cfb83124c377f7170f33b2e", size = 33851, upload-time = "2025-10-17T14:33:40.46Z" },
 ]
 
 [[package]]
