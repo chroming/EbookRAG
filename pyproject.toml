@@ -31,7 +31,8 @@ llamaindex = [
 
 # ---- Option B: LangChain + FAISS ----
 langchain = [
-  "langgraph[langchain]==1.0.0",
+  "langgraph==1.0.0",
+  "langchain==1.0.0",
   "langchain-community",
   "langchain-openai",
   "faiss-cpu",
