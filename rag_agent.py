@@ -6,6 +6,7 @@ from langchain_core.messages import AIMessage, BaseMessage
 from langchain_core.tools import tool
 
 from langchain.agents import create_agent
+from langgraph.checkpoint.memory import InMemorySaver
 
 from rag_langchain import (  # type: ignore[attr-defined]
     _grade_documents_with_llm,
@@ -61,12 +62,13 @@ rag_agent = create_agent(
     tools=[search_epubs],
     system_prompt=SYSTEM_PROMPT,
     name="epub_rag_agent",
+    checkpointer=InMemorySaver()
 )
 
 
 def answer_question(question: str) -> str:
     """Run the RAG agent for a single user query and return the assistant's reply."""
-    result = rag_agent.invoke({"messages": [("user", question)]})
+    result = rag_agent.invoke({"messages": [("user", question)]}, config={"configurable": {"thread_id": "1"}})
     messages: Sequence[BaseMessage] = result.get("messages", [])
     for message in reversed(messages):
         logger.info(f"Message from agent {message}")
