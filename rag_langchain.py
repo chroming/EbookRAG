@@ -380,8 +380,10 @@ def compute_epub_manifest(epub_paths: list[Path]) -> dict:
     files: dict[str, dict[str, object]] = {}
     for path in epub_paths:
         stat = path.stat()
+        # Add embedding params when caculate hash
+        related_param: bytes = b"{EMBED_MODEL_NAME}:{CHUNK_SIZE}:{CHUNK_OVERLAP}:{CHUNK_SEPARATORS}"
         with path.open("rb") as fh:
-            digest = hashlib.sha256(fh.read()).hexdigest()
+            digest = hashlib.sha256(related_param + fh.read()).hexdigest()
         files[str(path.resolve())] = {
             "size": stat.st_size,
             "mtime": stat.st_mtime,
