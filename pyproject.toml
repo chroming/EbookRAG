@@ -15,7 +15,6 @@ dependencies = [
   "python-magic; platform_system != 'Windows'",
   "python-magic-bin; platform_system == 'Windows'",
   "pypandoc",
-  "langchain-text-splitters>=1.0.0",
 ]
 
 [project.optional-dependencies]
@@ -33,6 +32,8 @@ llamaindex = [
 langchain = [
   "langgraph==1.0.0",
   "langchain==1.0.0",
+  "langchain-text-splitters>=1.0.0",
+  "langchain-classic>=1.0.0",
   "langchain-community",
   "langchain-openai",
   "faiss-cpu",

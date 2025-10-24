@@ -791,8 +791,6 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "huggingface-hub" },
-    { name = "langchain-classic" },
-    { name = "langchain-text-splitters" },
     { name = "pypandoc" },
     { name = "python-dotenv" },
     { name = "python-magic", marker = "sys_platform != 'win32'" },
@@ -814,8 +812,10 @@ eval = [
 langchain = [
     { name = "faiss-cpu" },
     { name = "langchain" },
+    { name = "langchain-classic" },
     { name = "langchain-community" },
     { name = "langchain-openai" },
+    { name = "langchain-text-splitters" },
     { name = "langgraph" },
 ]
 llamaindex = [
@@ -844,10 +844,10 @@ requires-dist = [
     { name = "faiss-cpu", marker = "extra == 'llamaindex'" },
     { name = "huggingface-hub" },
     { name = "langchain", marker = "extra == 'langchain'", specifier = "==1.0.0" },
-    { name = "langchain-classic", specifier = ">=1.0.0" },
+    { name = "langchain-classic", marker = "extra == 'langchain'", specifier = ">=1.0.0" },
     { name = "langchain-community", marker = "extra == 'langchain'" },
     { name = "langchain-openai", marker = "extra == 'langchain'" },
-    { name = "langchain-text-splitters", specifier = ">=1.0.0" },
+    { name = "langchain-text-splitters", marker = "extra == 'langchain'", specifier = ">=1.0.0" },
     { name = "langgraph", marker = "extra == 'langchain'" },
     { name = "langgraph", marker = "extra == 'langchain'", specifier = "==1.0.0" },
     { name = "llama-index-core", marker = "extra == 'llamaindex'" },
