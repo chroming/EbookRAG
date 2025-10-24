@@ -33,7 +33,7 @@ If you prefer ad-hoc installation, `uv pip install '.[langchain]'` or `uv pip in
 2. Place your EPUB files inside the directory configured by `EPUB_DIR` (defaults to `epubs/`).
 3. Update the variables in `.env` as needed:
    - `OPENAI_API_KEY`, `OPENAI_API_BASE_URL`, `OPENAI_API_MODEL`, `OPENAI_TEMPERATURE`
-   - `EMBED_PROVIDER` and related settings to choose HuggingFace or Ollama embeddings
+   - `EMBED_PROVIDER` and related settings to choose HuggingFace, OpenAI-compatible, or Ollama embeddings
    - Chunking parameters such as `CHUNK_SIZE`, `CHUNK_OVERLAP`, `CHUNK_SEPARATORS`
    - Optional `QA_PROMPT_TEMPLATE` or `QA_PROMPT_TEMPLATE_PATH` for custom prompts
 

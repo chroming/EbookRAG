@@ -21,7 +21,7 @@ from langgraph.graph import END, START, StateGraph
 
 from langchain_community.document_loaders import UnstructuredEPubLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_openai import ChatOpenAI
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_community.vectorstores import FAISS
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_core.prompts.chat import ChatPromptTemplate
@@ -47,6 +47,13 @@ load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 EPUB_DIR = os.getenv("EPUB_DIR", "epubs")
 EMBED_MODEL_NAME = os.getenv("EMBED_MODEL_NAME", "intfloat/multilingual-e5-base")
 TOP_K = int(os.getenv("TOP_K", "5"))
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
 OPENAI_API_MODEL = os.getenv("OPENAI_API_MODEL", "gpt-4o-mini")
 OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0"))
 OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL")
@@ -159,8 +166,47 @@ def create_embeddings():
         embedding._ebookrag_embed_options = extra_options
         return embedding
 
+    if EMBED_PROVIDER == "openai":
+        extra_kwargs: dict[str, object] = {}
+        if OPENAI_EMBED_API_BASE_URL:
+            extra_kwargs["base_url"] = OPENAI_EMBED_API_BASE_URL
+        if OPENAI_EMBED_API_KEY:
+            extra_kwargs["api_key"] = OPENAI_EMBED_API_KEY
+
+        if OPENAI_EMBED_DIMENSIONS_RAW:
+            try:
+                dimensions = int(OPENAI_EMBED_DIMENSIONS_RAW)
+                if dimensions <= 0:
+                    raise ValueError("dimensions must be greater than zero")
+                extra_kwargs["dimensions"] = dimensions
+            except ValueError as exc:
+                logger.warning(
+                    "Ignoring OPENAI_EMBED_DIMENSIONS because it is invalid (%s)",
+                    exc,
+                )
+
+        if OPENAI_EMBED_EXTRA_PARAMS:
+            try:
+                parsed = json.loads(OPENAI_EMBED_EXTRA_PARAMS)
+                if isinstance(parsed, dict):
+                    extra_kwargs.update(parsed)
+                else:
+                    raise ValueError("expected JSON object")
+            except (json.JSONDecodeError, ValueError) as exc:
+                logger.warning(
+                    "Ignoring OPENAI_EMBED_EXTRA_PARAMS because it is invalid JSON object: %s",
+                    exc,
+                )
+
+        logger.info("Using OpenAI-compatible embeddings with model=%s", EMBED_MODEL_NAME)
+        return OpenAIEmbeddings(
+            model=EMBED_MODEL_NAME,
+            check_embedding_ctx_length=OPENAI_EMBED_CHECK_CTX_LENGTH,
+            **extra_kwargs,
+        )
+
     raise ValueError(
-        "Unsupported EMBED_PROVIDER '%s'. Expected 'huggingface' or 'ollama'."
+        "Unsupported EMBED_PROVIDER '%s'. Expected 'huggingface', 'ollama', or 'openai'."
         % EMBED_PROVIDER
     )
 
@@ -284,7 +330,15 @@ def _enable_embedding_progress_logging(embedding_model):
         results = []
         for start in range(0, total, EMBED_BATCH_SIZE):
             end = min(start + EMBED_BATCH_SIZE, total)
-            batch = texts_list[start:end]
+            raw_batch = texts_list[start:end]
+            batch = []
+            for item in raw_batch:
+                if isinstance(item, str):
+                    batch.append(item)
+                elif isinstance(item, Document):
+                    batch.append(item.page_content or "")
+                else:
+                    batch.append(str(item))
             logger.info(
                 "LangChain embedding progress: %d/%d document chunks",
                 end,

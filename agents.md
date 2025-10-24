@@ -24,7 +24,7 @@ python rag_llamaindex.py      # LlamaIndex
 
 ## 关键配置旋钮 / Core Configuration Knobs
 - **LLM**：`OPENAI_API_KEY`, `OPENAI_API_BASE_URL`, `OPENAI_API_MODEL`, `OPENAI_TEMPERATURE`（两条流水线共享）。
-- **Embeddings**：`EMBED_PROVIDER`（`huggingface` 或 `ollama`）、`EMBED_MODEL_NAME`、`OLLAMA_BASE_URL`, `OLLAMA_EMBED_MODEL`, `OLLAMA_EMBED_OPTIONS`（LangChain 路径会清洗空选项并缓存自定义参数）。
+- **Embeddings**：`EMBED_PROVIDER`（`huggingface`、`openai` 或 `ollama`）、`EMBED_MODEL_NAME`、`OPENAI_EMBED_API_BASE_URL`、`OPENAI_EMBED_API_KEY`、`OPENAI_EMBED_DIMENSIONS`、`OPENAI_EMBED_EXTRA_PARAMS`、`OPENAI_EMBED_CHECK_CTX_LENGTH`、`OLLAMA_BASE_URL`, `OLLAMA_EMBED_OPTIONS`（LangChain 路径会清洗空选项并缓存自定义参数）。
 - **切分与检索**：`CHUNK_SIZE`, `CHUNK_OVERLAP`, `CHUNK_SEPARATORS`, `TOP_K`, `VECTOR_EMBED_BATCH_SIZE`。
 - **LangGraph 提示**：`QA_PROMPT_TEMPLATE`, `QA_PROMPT_TEMPLATE_PATH`, `LANGGRAPH_GRADER_SYSTEM_PROMPT`, `LANGGRAPH_GRADER_HUMAN_PROMPT`。
 - **持久化目录**：`VECTOR_STORE_DIR`（LangChain）与 `LLAMAINDEX_VECTOR_STORE_DIR`（LlamaIndex）可通过 `.env` 覆写，用于自定义缓存位置。
