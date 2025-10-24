@@ -58,12 +58,15 @@ OPENAI_API_MODEL = os.getenv("OPENAI_API_MODEL", "gpt-4o-mini")
 OPENAI_TEMPERATURE = float(os.getenv("OPENAI_TEMPERATURE", "0"))
 OPENAI_API_BASE_URL = os.getenv("OPENAI_API_BASE_URL")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+OPENAI_EMBED_API_BASE_URL = os.getenv("OPENAI_EMBED_API_BASE_URL") or OPENAI_API_BASE_URL
+OPENAI_EMBED_API_KEY = os.getenv("OPENAI_EMBED_API_KEY") or OPENAI_API_KEY
+OPENAI_EMBED_DIMENSIONS_RAW = os.getenv("OPENAI_EMBED_DIMENSIONS")
+OPENAI_EMBED_EXTRA_PARAMS = os.getenv("OPENAI_EMBED_EXTRA_PARAMS")
+OPENAI_EMBED_CHECK_CTX_LENGTH = _env_flag("OPENAI_EMBED_CHECK_CTX_LENGTH", False)
 VECTOR_STORE_DIR = Path(os.getenv("VECTOR_STORE_DIR", "vector_store_langchain"))
 EMBED_BATCH_SIZE = max(1, int(os.getenv("VECTOR_EMBED_BATCH_SIZE", "64")))
 EMBED_PROVIDER = (os.getenv("EMBED_PROVIDER") or "huggingface").strip().lower()
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL")
-OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL")
-DEFAULT_OLLAMA_EMBED_MODEL = "nomic-embed-text"
 OLLAMA_EMBED_OPTIONS = os.getenv("OLLAMA_EMBED_OPTIONS")
 CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", "800"))
 CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", "120"))
@@ -157,7 +160,7 @@ def create_embeddings():
             OllamaEmbeddings._default_params = property(sanitized_default_params)
             OllamaEmbeddings._ebookrag_sanitized = True
 
-        model_name = (OLLAMA_EMBED_MODEL or DEFAULT_OLLAMA_EMBED_MODEL).strip()
+        model_name = EMBED_MODEL_NAME
         kwargs = {}
         if OLLAMA_BASE_URL:
             kwargs["base_url"] = OLLAMA_BASE_URL
